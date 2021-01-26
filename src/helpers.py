@@ -1,4 +1,6 @@
+from collections import OrderedDict
 from datetime import datetime
+from typing import Sequence
 
 import torch
 import torch.nn as nn
@@ -6,6 +8,8 @@ from torch.utils.data import DataLoader
 import logging
 import matplotlib.pyplot as plt
 import numpy as np
+
+from src.metrics import Metric
 
 
 class Device(object):
@@ -105,7 +109,13 @@ def validation_step(valid_loader: DataLoader, model, criterion, device: torch.de
     return model, epoch_loss
 
 
-def train(model, criterion, optimizer: torch.optim.Optimizer, train_loader: DataLoader, valid_loader: DataLoader, epochs: int, device: torch.device, print_every=1):
+def train(model, criterion, optimizer: torch.optim.Optimizer,
+          train_loader: DataLoader,
+          valid_loader: DataLoader,
+          epochs: int,
+          device: torch.device,
+          eval_metrics: Sequence[Metric],
+          print_every=1):
     """Training loop implementation.
 
     :param model:
@@ -135,10 +145,39 @@ def train(model, criterion, optimizer: torch.optim.Optimizer, train_loader: Data
             valid_losses.append(valid_loss)
 
         if print_every and epoch % print_every == print_every - 1:
+
+            metrics_score = OrderedDict(
+                {
+                    **{metric.name: 0 for metric in eval_metrics},
+                    **{metric.name+'_val': 0 for metric in eval_metrics},
+                }
+            )
+            metric_output = ''
+            # evaluation of the training
+            for x_train, y_train in train_loader:
+                _, y_pred_prob = model(x_train)
+                _, y_pred = torch.max(y_pred_prob, 1)
+                for metric in eval_metrics:
+                    # metric is calculated PER BATCH -> to correct we multiply by the batch size and divide by the shape
+                    metrics_score[metric.name] += metric(y_pred=y_pred, y_true=y_train)*y_pred.shape[0]
+            # evaluation of the validation data
+            for x_val, y_val in valid_loader:
+                _, y_pred_prob = model(x_val)
+                _, y_pred = torch.max(y_pred_prob, 1)
+                for metric in eval_metrics:
+                    # metric is calculated PER BATCH -> to correct we multiply by the batch size and divide by the shape
+                    metrics_score[metric.name+'_val'] += metric(y_pred=y_pred, y_true=y_val)*y_pred.shape[0]
+
+            for metric in eval_metrics:
+                metrics_score[metric.name] = metrics_score[metric.name] / len(train_loader.dataset)
+                metrics_score[metric.name+'_val'] = metrics_score[metric.name+'_val'] / len(valid_loader.dataset)
+                metric_output = f'{metric.name}: {metrics_score[metric.name]:.4f}\tValidation {metric.name}: {metrics_score[metric.name+"_val"]:.4f}'
+
             print(f'{datetime.now().time().replace(microsecond=0)} --- '
                   f'Epoch: {epoch}\t'
                   f'Train loss: {train_loss:.4f}\t'
-                  f'Valid loss: {valid_loss:.4f}\t')
+                  f'Valid loss: {valid_loss:.4f}\t'
+                  f'{metric_output}')
 
     plot_losses(train_losses, valid_losses)
 
