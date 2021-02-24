@@ -1,6 +1,6 @@
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 from datetime import datetime
-from typing import Sequence
+from typing import Sequence, List, Union
 
 import torch
 import torch.nn as nn
@@ -10,6 +10,42 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from src.metrics import Metric
+
+# EvaluationMetric = namedtuple('EvaluationMetric', ['name', 'training', 'validation'])
+
+class EvaluationMetric:
+    def __init__(self, name: str, training: Union[List, None] = [], validation: Union[List, None] = []):
+        self.name = name
+        self.training = training
+        self.validation = validation
+
+    def append(self, training=None, validation=None):
+        if training:
+            self.training.append(training)
+        if validation:
+            self.validation.append(validation)
+
+    def __repr__(self):
+        return f'EvaluationMetric {self.name} with training: {self.training} and validation: {self.validation}'
+
+    def plot(self):
+        plt.style.use('seaborn')
+
+        train_losses = np.array(self.training)
+        valid_losses = np.array(self.validation)
+
+        fig, ax = plt.subplots(figsize=(8, 4.5))
+
+        ax.plot(train_losses, color='blue', label=f'Training {self.name}')
+        ax.plot(valid_losses, color='red', label=f'Validation {self.name}')
+        ax.set(title=f"{self.name} over epochs",
+               xlabel='Epoch',
+               ylabel=f'{self.name}')
+        ax.legend()
+        fig.show()
+
+        # change the plot style to default
+        plt.style.use('default')
 
 
 class Device(object):
@@ -130,19 +166,19 @@ def train(model, criterion, optimizer: torch.optim.Optimizer,
     """
     # set objects for storing metrics
     best_loss = 1e10
-    train_losses = []
-    valid_losses = []
+    metrics = {x.name: EvaluationMetric(x.name) for x in eval_metrics}
+    metrics['Loss'] = EvaluationMetric('Loss')
 
     # training loop
     for epoch in range(epochs):
         # training step
         model, optimizer, train_loss = training_step(train_loader, model, criterion, optimizer, device)
-        train_losses.append(train_loss)
+        metrics['Loss'].append(training=train_loss)
         # validation step
         # # deactivate autograd
         with torch.no_grad():
             model, valid_loss = validation_step(valid_loader, model, criterion, device)
-            valid_losses.append(valid_loss)
+            metrics['Loss'].append(validation=valid_loss)
 
         if print_every and epoch % print_every == print_every - 1:
 
@@ -172,6 +208,9 @@ def train(model, criterion, optimizer: torch.optim.Optimizer,
                 metrics_score[metric.name] = metrics_score[metric.name] / len(train_loader.dataset)
                 metrics_score[metric.name+'_val'] = metrics_score[metric.name+'_val'] / len(valid_loader.dataset)
                 metric_output = f'{metric.name}: {metrics_score[metric.name]:.4f}\tValidation {metric.name}: {metrics_score[metric.name+"_val"]:.4f}'
+                metrics[metric.name].append(training=metrics_score[metric.name], validation=metrics_score[metric.name + '_val'])
+                # metrics[metric.name].append(metrics_score[metric.name])
+                # metrics[metric.name+'_val'].append(metrics_score[metric.name+'_val'])
 
             print(f'{datetime.now().time().replace(microsecond=0)} --- '
                   f'Epoch: {epoch}\t'
@@ -179,6 +218,6 @@ def train(model, criterion, optimizer: torch.optim.Optimizer,
                   f'Valid loss: {valid_loss:.4f}\t'
                   f'{metric_output}')
 
-    plot_losses(train_losses, valid_losses)
+    plot_losses(metrics['Loss'].training, metrics['Loss'].validation)
 
-    return model, optimizer, (train_losses, valid_losses)
+    return model, optimizer, metrics
