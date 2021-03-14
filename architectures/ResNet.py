@@ -168,8 +168,9 @@ class ResNet(nn.Module):
 
     def forward(self, x):
         x = self.feature_extractor(x)
-        x = self.classifier(x)
-        return x
+        logits = self.classifier(x)
+        probs = F.softmax(logits, dim=1)
+        return logits, probs
 
 def resnet18(in_channels, n_classes, *args, **kwargs):
     return ResNet(in_channels, n_classes, layer_sizes=[2, 2, 2, 2], *args, **kwargs)
