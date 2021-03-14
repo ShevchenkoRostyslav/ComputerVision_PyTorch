@@ -1,9 +1,11 @@
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict
 from datetime import datetime
-from typing import Sequence, List, Union
+from typing import Sequence, List, Union, Tuple
+import nptyping as npt
+import torchvision
+from torch.utils.tensorboard import SummaryWriter
 
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
 import logging
 import matplotlib.pyplot as plt
@@ -11,19 +13,18 @@ import numpy as np
 
 from src.metrics import Metric
 
-# EvaluationMetric = namedtuple('EvaluationMetric', ['name', 'training', 'validation'])
 
 class EvaluationMetric:
-    def __init__(self, name: str, training: Union[List, None] = [], validation: Union[List, None] = []):
+    def __init__(self, name: str, training: npt.NDArray = np.array([]), validation: npt.NDArray = np.array([])):
         self.name = name
         self.training = training
         self.validation = validation
 
     def append(self, training=None, validation=None):
         if training:
-            self.training.append(training)
+            self.training = np.append(self.training, training)
         if validation:
-            self.validation.append(validation)
+            self.validation = np.append(self.validation, validation)
 
     def __repr__(self):
         return f'EvaluationMetric {self.name} with training: {self.training} and validation: {self.validation}'
@@ -151,7 +152,8 @@ def train(model, criterion, optimizer: torch.optim.Optimizer,
           epochs: int,
           device: torch.device,
           eval_metrics: Sequence[Metric],
-          print_every=1):
+          print_every: int = 1,
+          tensorboard_logs: str = 'runs'):
     """Training loop implementation.
 
     :param model:
@@ -161,9 +163,20 @@ def train(model, criterion, optimizer: torch.optim.Optimizer,
     :param valid_loader:
     :param epochs:
     :param device:
+    :param eval_metrics:
     :param print_every:
+    :param tensorboard_logs:
     :return:
     """
+    if tensorboard_logs:
+        writer = SummaryWriter(tensorboard_logs)
+        batch, _ = next(iter(train_loader))
+        img_grid = torchvision.utils.make_grid(batch)
+        # save images from the batch
+        writer.add_image('batches', img_grid)
+        # save model graph
+        writer.add_graph(model, batch)
+        writer.close()
     # set objects for storing metrics
     best_loss = 1e10
     metrics = {x.name: EvaluationMetric(x.name) for x in eval_metrics}
@@ -217,6 +230,15 @@ def train(model, criterion, optimizer: torch.optim.Optimizer,
                   f'Train loss: {train_loss:.4f}\t'
                   f'Valid loss: {valid_loss:.4f}\t'
                   f'{metric_output}')
+
+            if tensorboard_logs:
+                # ...log the running loss
+                writer.add_scalar('training loss',
+                                  train_loss,
+                                  epoch)
+                writer.add_scalar('validation loss',
+                                  valid_loss,
+                                  epoch)
 
     plot_losses(metrics['Loss'].training, metrics['Loss'].validation)
 
