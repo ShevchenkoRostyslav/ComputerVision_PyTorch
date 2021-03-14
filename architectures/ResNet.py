@@ -13,14 +13,6 @@ def activation_fn(name):
     ['none', nn.Identity()]
 ])[name]
 
-# activation_fn = nn.ModuleDict([
-#     ['relu', nn.ReLU(inplace=True)],
-#     ['leaky_relu', nn.LeakyReLU(inplace=True)],
-#     ['selu', nn.SELU(inplace=True)],
-#     ['none', nn.Identity()]
-# ])
-
-
 class Conv2dSamePad(nn.Conv2d):
     """Implementation of the 2D convolution layer with same padding.
 
